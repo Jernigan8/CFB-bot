@@ -347,10 +347,14 @@ async function youtubeLiveStreamFromPage(ref, channelId, profile) {
   const videoId = youtubeVideoIdFromHtml(livePage.text) || youtubeVideoIdFromUrl(livePage.url);
   if (!videoId) return null;
 
-  const watchPage = await fetchPage(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`);
-  const title = youtubeTitleFromHtml(watchPage.text) || youtubeTitleFromHtml(livePage.text) || "NECF live stream";
-  const isLive = youtubeHtmlIsLive(watchPage.text) || youtubeHtmlIsLive(livePage.text);
-  if (!isLive || !/necf/i.test(title)) return null;
+  const [watchPage, directLivePage] = await Promise.all([
+    fetchPage(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`),
+    fetchPage(`https://www.youtube.com/live/${encodeURIComponent(videoId)}`).catch(() => null)
+  ]);
+  const title = youtubeTitleFromHtml(directLivePage?.text || "") || youtubeTitleFromHtml(watchPage.text) || youtubeTitleFromHtml(livePage.text) || "NECF live stream";
+  const titleHasNecf = /necf/i.test(title);
+  const isLive = youtubeHtmlIsLive(directLivePage?.text || "") || youtubeHtmlIsLive(watchPage.text) || youtubeHtmlIsLive(livePage.text);
+  if (!titleHasNecf) return null;
 
   return {
     id: videoId,
@@ -362,7 +366,8 @@ async function youtubeLiveStreamFromPage(ref, channelId, profile) {
     thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
     platform: "youtube",
     platformLabel: "YouTube",
-    channelLabel: profile.label
+    channelLabel: profile.label,
+    liveVerified: isLive
   };
 }
 
@@ -372,7 +377,13 @@ function youtubeLiveUrl(ref, channelId) {
 }
 
 function youtubeHtmlIsLive(html) {
-  return /"isLiveNow":true/.test(html) || /"status":"LIVE"/.test(html) || /"liveBroadcastContent":"live"/i.test(html);
+  return /"isLiveNow":true/.test(html) ||
+    /"status":"LIVE"/.test(html) ||
+    /"liveBroadcastContent":"live"/i.test(html) ||
+    /watching now/i.test(html) ||
+    /started streaming/i.test(html) ||
+    /live chat/i.test(html) ||
+    /watching this live stream/i.test(html);
 }
 
 function youtubeTitleFromHtml(html) {
